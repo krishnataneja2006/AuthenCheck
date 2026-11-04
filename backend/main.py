@@ -503,83 +503,53 @@ def extract_image_text(file_path: Path) -> str:
 
 
 
-def extract_pdf_text(file_path: Path) -> str:
 
+def extract_pdf_text(file_path: Path) -> str:
     page_texts = []
 
-
-
     try:
-
         with fitz.open(file_path) as document:
-
             if len(document) > MAX_PDF_PAGES:
-
                 raise ValueError(
-
                     f"PDF exceeds the {MAX_PDF_PAGES}-page limit."
-
                 )
 
-
-
             for page in document:
+                # Extract the PDF's embedded text.
+                embedded_text = page.get_text("text").strip()
 
-                text = page.get_text("text").strip()
+                # Render the visible PDF page as an image.
+                pixmap = page.get_pixmap(
+                    matrix=fitz.Matrix(2, 2),
+                    alpha=False,
+                )
 
+                image = Image.frombytes(
+                    "RGB",
+                    [pixmap.width, pixmap.height],
+                    pixmap.samples,
+                )
 
+                # OCR the visible page, even if embedded text exists.
+                ocr_text = pytesseract.image_to_string(
+                    image,
+                    lang="eng",
+                ).strip()
 
-                if len(text) < 20:
-
-                    pixmap = page.get_pixmap(
-
-                        matrix=fitz.Matrix(2, 2),
-
-                        alpha=False,
-
-                    )
-
-                    image = Image.frombytes(
-
-                        "RGB",
-
-                        [pixmap.width, pixmap.height],
-
-                        pixmap.samples,
-
-                    )
-
-                    ocr_text = pytesseract.image_to_string(
-
-                        image,
-
-                        lang="eng",
-
-                    ).strip()
-
-
-
-                    if len(ocr_text) > len(text):
-
-                        text = ocr_text
-
-
+                # Prefer OCR when it contains more readable text.
+                # Keep both sources for the next comparison feature.
+                if len(ocr_text) > len(embedded_text):
+                    text = ocr_text
+                else:
+                    text = embedded_text
 
                 if text:
-
                     page_texts.append(text)
 
-
-
     except ValueError:
-
         raise
-
     except Exception as exc:
-
         raise RuntimeError("Could not process PDF.") from exc
-
-
 
     return "\n\n".join(page_texts).strip()
 

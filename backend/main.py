@@ -126,24 +126,18 @@ app = FastAPI(
 
 
 
+
 app.add_middleware(
-
     CORSMiddleware,
-
     allow_origins=[
-
         "http://localhost:3000",
-
         "http://127.0.0.1:3000",
-
+        "https://authen-check-q6p4.vercel.app",
+        "https://authen-check-q6p4-qae6vfcvq-krishna-tanejas-projects-3c586b4e.vercel.app",
     ],
-
     allow_credentials=True,
-
     allow_methods=["*"],
-
     allow_headers=["*"],
-
 )
 
 

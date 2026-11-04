@@ -1,0 +1,10 @@
+
+fastapi
+uvicorn[standard]
+python-multipart
+google-genai
+PyMuPDF
+pytesseract
+Pillow
+python-dotenv
+reportlab

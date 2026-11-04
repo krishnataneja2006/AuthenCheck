@@ -1249,6 +1249,7 @@ def download_credential_report(credential_id: str):
 
 
 
+
 def determine_automatic_decision(
     ai_analysis,
     document_type,
@@ -1256,9 +1257,10 @@ def determine_automatic_decision(
     extracted_text,
     pdf_comparison=None
 ):
-    """Never claim authenticity without independent issuer confirmation."""
+    """Apply LOW/MEDIUM/HIGH preliminary screening decisions."""
 
     ai_analysis = ai_analysis if isinstance(ai_analysis, dict) else {}
+
     risk_level = str(
         ai_analysis.get("risk_level", "UNKNOWN")
     ).strip().upper()
@@ -1267,50 +1269,78 @@ def determine_automatic_decision(
         str(extracted_text or "").strip()
     )
 
+    # Insufficient evidence must never be automatically verified.
     if not has_readable_text:
         return (
             "PENDING_REVIEW",
             True,
             "Insufficient readable text. Manual review required."
         )
-    if (
-    isinstance(pdf_comparison, dict)
-    and pdf_comparison.get("possible_mismatch") is True
-):
-    return (
-        "PENDING_REVIEW",
-        True,
-        "Differences detected between PDF embedded text and visible OCR. Manual inspection required."
-    )
 
+    # HIGH risk: automatically reject as requested.
     if risk_level == "HIGH":
         return (
             "REJECTED",
+            False,
+            "High-risk indicators detected by AI screening."
+        )
+
+    # MEDIUM and UNKNOWN: manual review.
+    if risk_level in {"MEDIUM", "UNKNOWN"}:
+        return (
+            "PENDING_REVIEW",
             True,
-            "High-risk indicators detected. Independent review required."
+            f"AI risk level is {risk_level}. Manual review required."
         )
 
-    if risk_level == "MEDIUM":
-        reason = "Potential inconsistencies detected. Manual review required."
+    # Unexpected AI risk values.
+    if risk_level != "LOW":
+        return (
+            "PENDING_REVIEW",
+            True,
+            "Unrecognized AI risk level. Manual review required."
+        )
 
-    elif risk_level == "UNKNOWN":
-        reason = "Insufficient evidence. Manual review required."
+    # LOW risk still requires preliminary checks to pass.
+    if document_type != "LIKELY_CERTIFICATE":
+        return (
+            "PENDING_REVIEW",
+            True,
+            "Document type could not be confirmed."
+        )
 
-    elif document_type != "LIKELY_CERTIFICATE":
-        reason = "Document type could not be confirmed."
+    if not isinstance(detail_checks, dict) or not detail_checks:
+        return (
+            "PENDING_REVIEW",
+            True,
+            "Document details could not be checked."
+        )
 
-    elif not isinstance(detail_checks, dict) or not all(
-        value is True for value in detail_checks.values()
+    if not all(value is True for value in detail_checks.values()):
+        return (
+            "PENDING_REVIEW",
+            True,
+            "Submitted details do not fully match extracted text."
+        )
+
+    # Do not auto-verify if PDF text and visible OCR differ.
+    if (
+        isinstance(pdf_comparison, dict)
+        and pdf_comparison.get("possible_mismatch") is True
     ):
-        reason = "Submitted details do not fully match extracted text."
-
-    else:
-        reason = (
-            "Preliminary screening completed, but issuer confirmation "
-            "is required before authenticity can be established."
+        return (
+            "PENDING_REVIEW",
+            True,
+            "PDF text and visible OCR differ. Manual inspection required."
         )
 
-    return "PENDING_REVIEW", True, reason
+    # LOW risk and all preliminary checks passed.
+    return (
+        "VERIFIED",
+        False,
+        "LOW AI risk and preliminary checks passed. "
+        "Issuer authenticity has not been independently confirmed."
+    )
 
 
 @app.post("/api/credentials/upload")

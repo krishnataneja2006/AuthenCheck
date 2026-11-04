@@ -1202,39 +1202,57 @@ def download_credential_report(credential_id: str):
 
 
 
-def determine_automatic_decision(ai_analysis, document_type, detail_checks, extracted_text):
-    """Choose a preliminary screening status from AI risk and local checks."""
+
+def determine_automatic_decision(
+    ai_analysis,
+    document_type,
+    detail_checks,
+    extracted_text
+):
+    """Never claim authenticity without independent issuer confirmation."""
+
     ai_analysis = ai_analysis if isinstance(ai_analysis, dict) else {}
-    risk_level = str(ai_analysis.get("risk_level", "UNKNOWN")).strip().upper()
-    manual_recommended = ai_analysis.get("manual_review_recommended") is True
-    has_readable_text = bool(str(extracted_text or "").strip())
-    all_detail_checks_pass = (
-        isinstance(detail_checks, dict)
-        and bool(detail_checks)
-        and all(value is True for value in detail_checks.values())
+    risk_level = str(
+        ai_analysis.get("risk_level", "UNKNOWN")
+    ).strip().upper()
+
+    has_readable_text = bool(
+        str(extracted_text or "").strip()
     )
 
     if not has_readable_text:
-        return "PENDING_REVIEW", True, "Insufficient readable text was extracted; manual review is required."
+        return (
+            "PENDING_REVIEW",
+            True,
+            "Insufficient readable text. Manual review required."
+        )
 
     if risk_level == "HIGH":
-        return "REJECTED", False, "High-risk indicators were detected by preliminary AI screening; verify evidence before making a final determination."
-
-    if risk_level == "LOW" and all_detail_checks_pass and document_type == "LIKELY_CERTIFICATE" and not manual_recommended:
-        return "VERIFIED", False, "Preliminary checks passed with low AI risk. This is not issuer-confirmed verification."
+        return (
+            "REJECTED",
+            True,
+            "High-risk indicators detected. Independent review required."
+        )
 
     if risk_level == "MEDIUM":
-        reason = "Medium risk detected; manual review is required."
-    elif risk_level == "UNKNOWN" or risk_level not in {"LOW", "MEDIUM", "HIGH"}:
-        reason = "AI risk could not be determined reliably; manual review is required."
-    elif not all_detail_checks_pass:
-        reason = "One or more submitted details did not match extracted text; manual review is required."
+        reason = "Potential inconsistencies detected. Manual review required."
+
+    elif risk_level == "UNKNOWN":
+        reason = "Insufficient evidence. Manual review required."
+
     elif document_type != "LIKELY_CERTIFICATE":
-        reason = "The uploaded document was not confidently identified as a certificate; manual review is required."
-    elif manual_recommended:
-        reason = "AI recommended manual review."
+        reason = "Document type could not be confirmed."
+
+    elif not isinstance(detail_checks, dict) or not all(
+        value is True for value in detail_checks.values()
+    ):
+        reason = "Submitted details do not fully match extracted text."
+
     else:
-        reason = "Evidence is inconclusive; manual review is required."
+        reason = (
+            "Preliminary screening completed, but issuer confirmation "
+            "is required before authenticity can be established."
+        )
 
     return "PENDING_REVIEW", True, reason
 

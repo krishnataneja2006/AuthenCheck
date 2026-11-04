@@ -504,8 +504,10 @@ def extract_image_text(file_path: Path) -> str:
 
 
 
-def extract_pdf_text(file_path: Path) -> str:
+
+def extract_pdf_text(file_path: Path):
     page_texts = []
+    page_comparisons = []
 
     try:
         with fitz.open(file_path) as document:
@@ -515,10 +517,10 @@ def extract_pdf_text(file_path: Path) -> str:
                 )
 
             for page in document:
-                # Extract the PDF's embedded text.
+                # Extract embedded PDF text.
                 embedded_text = page.get_text("text").strip()
 
-                # Render the visible PDF page as an image.
+                # Render the visible page.
                 pixmap = page.get_pixmap(
                     matrix=fitz.Matrix(2, 2),
                     alpha=False,
@@ -530,18 +532,27 @@ def extract_pdf_text(file_path: Path) -> str:
                     pixmap.samples,
                 )
 
-                # OCR the visible page, even if embedded text exists.
+                # Read visible text using OCR.
                 ocr_text = pytesseract.image_to_string(
                     image,
                     lang="eng",
                 ).strip()
 
-                # Prefer OCR when it contains more readable text.
-                # Keep both sources for the next comparison feature.
-                if len(ocr_text) > len(embedded_text):
-                    text = ocr_text
-                else:
-                    text = embedded_text
+                # Compare both sources when available.
+                comparison = compare_pdf_text_sources(
+                    embedded_text,
+                    ocr_text,
+                )
+
+                if comparison["comparison_available"]:
+                    page_comparisons.append(comparison)
+
+                # Keep the more readable text for existing checks.
+                text = (
+                    ocr_text
+                    if len(ocr_text) > len(embedded_text)
+                    else embedded_text
+                )
 
                 if text:
                     page_texts.append(text)
@@ -551,9 +562,74 @@ def extract_pdf_text(file_path: Path) -> str:
     except Exception as exc:
         raise RuntimeError("Could not process PDF.") from exc
 
-    return "\n\n".join(page_texts).strip()
+    extracted_text = "\n\n".join(page_texts).strip()
+
+    if page_comparisons:
+        average_similarity = sum(
+            item["similarity"] for item in page_comparisons
+        ) / len(page_comparisons)
+
+        possible_mismatch = any(
+            item["possible_mismatch"] for item in page_comparisons
+        )
+
+        pdf_comparison = {
+            "comparison_available": True,
+            "pages_compared": len(page_comparisons),
+            "average_similarity": round(average_similarity, 3),
+            "possible_mismatch": possible_mismatch,
+            "message": (
+                "Differences detected between PDF text and visible OCR. "
+                "Manual inspection recommended."
+                if possible_mismatch
+                else "No major text differences detected."
+            ),
+        }
+    else:
+        pdf_comparison = {
+            "comparison_available": False,
+            "pages_compared": 0,
+            "average_similarity": None,
+            "possible_mismatch": False,
+            "message": "Not enough embedded and OCR text to compare.",
+        }
+
+    return extracted_text, pdf_comparison
 
 
+
+def compare_pdf_text_sources(embedded_text: str, ocr_text: str) -> dict:
+    """Compare embedded PDF text with text recognized from its visible page."""
+
+    embedded = normalize_text(embedded_text or "")
+    ocr = normalize_text(ocr_text or "")
+
+    if not embedded or not ocr:
+        return {
+            "comparison_available": False,
+            "similarity": None,
+            "possible_mismatch": False,
+            "message": "Not enough text for comparison."
+        }
+
+    similarity = SequenceMatcher(
+        None,
+        embedded,
+        ocr
+    ).ratio()
+
+    possible_mismatch = similarity < 0.85
+
+    return {
+        "comparison_available": True,
+        "similarity": round(similarity, 3),
+        "possible_mismatch": possible_mismatch,
+        "message": (
+            "Text sources differ. Manual inspection recommended."
+            if possible_mismatch
+            else "Text sources are reasonably similar."
+        )
+    }
 
 # ============================================================
 
@@ -1177,7 +1253,8 @@ def determine_automatic_decision(
     ai_analysis,
     document_type,
     detail_checks,
-    extracted_text
+    extracted_text,
+    pdf_comparison=None
 ):
     """Never claim authenticity without independent issuer confirmation."""
 
@@ -1196,6 +1273,15 @@ def determine_automatic_decision(
             True,
             "Insufficient readable text. Manual review required."
         )
+    if (
+    isinstance(pdf_comparison, dict)
+    and pdf_comparison.get("possible_mismatch") is True
+):
+    return (
+        "PENDING_REVIEW",
+        True,
+        "Differences detected between PDF embedded text and visible OCR. Manual inspection required."
+    )
 
     if risk_level == "HIGH":
         return (
@@ -1375,13 +1461,18 @@ async def upload_credential(
 
 
 
-        if extension == ".pdf":
-
-            extracted_text = extract_pdf_text(saved_path)
-
-        else:
-
-            extracted_text = extract_image_text(saved_path)
+        
+if extension == ".pdf":
+    extracted_text, pdf_comparison = extract_pdf_text(saved_path)
+else:
+    extracted_text = extract_image_text(saved_path)
+    pdf_comparison = {
+        "comparison_available": False,
+        "pages_compared": 0,
+        "average_similarity": None,
+        "possible_mismatch": False,
+        "message": "PDF comparison is not applicable to image uploads."
+    }
 
 
 
@@ -1460,8 +1551,12 @@ async def upload_credential(
 
 
     status, manual_review_required, decision_reason = determine_automatic_decision(
-        ai_analysis, document_type, detail_checks, extracted_text
-    )
+    ai_analysis,
+    document_type,
+    detail_checks,
+    extracted_text,
+    pdf_comparison
+)
 
     credential_id = str(uuid.uuid4())
 
@@ -1569,6 +1664,7 @@ async def upload_credential(
             ),
 
         },
+        "pdf_comparison": pdf_comparison,
 
         "detected_dates": detected_dates,
 

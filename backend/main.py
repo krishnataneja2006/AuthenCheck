@@ -1278,12 +1278,14 @@ def determine_automatic_decision(
         )
 
     # HIGH risk: automatically reject as requested.
+    
     if risk_level == "HIGH":
         return (
             "REJECTED",
             False,
             "High-risk indicators detected by AI screening."
         )
+
 
     # MEDIUM and UNKNOWN: manual review.
     if risk_level in {"MEDIUM", "UNKNOWN"}:
@@ -1492,40 +1494,31 @@ async def upload_credential(
 
 
         
-if extension == ".pdf":
-    extracted_text, pdf_comparison = extract_pdf_text(saved_path)
-else:
-    extracted_text = extract_image_text(saved_path)
-    pdf_comparison = {
-        "comparison_available": False,
-        "pages_compared": 0,
-        "average_similarity": None,
-        "possible_mismatch": False,
-        "message": "PDF comparison is not applicable to image uploads."
-    }
+    try:
+        saved_path.write_bytes(content)
 
-
+        if extension == ".pdf":
+            extracted_text, pdf_comparison = extract_pdf_text(saved_path)
+        else:
+            extracted_text = extract_image_text(saved_path)
+            pdf_comparison = {
+                "comparison_available": False,
+                "pages_compared": 0,
+                "average_similarity": None,
+                "possible_mismatch": False,
+                "message": "PDF comparison is not applicable to image uploads."
+            }
 
     except ValueError as exc:
-
         saved_path.unlink(missing_ok=True)
-
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-
-
     except Exception as exc:
-
         saved_path.unlink(missing_ok=True)
-
         raise HTTPException(
-
             status_code=422,
-
             detail="The file could not be processed. Check the file and OCR installation.",
-
         ) from exc
-
 
 
     document_type, document_type_reason = detect_document_type(
@@ -1580,7 +1573,7 @@ else:
 
 
 
-    status, manual_review_required, decision_reason = determine_automatic_decision(
+   status, manual_review_required, decision_reason = determine_automatic_decision( 
     ai_analysis,
     document_type,
     detail_checks,

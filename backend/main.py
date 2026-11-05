@@ -1255,93 +1255,88 @@ def determine_automatic_decision(
     document_type,
     detail_checks,
     extracted_text,
-    pdf_comparison=None
+    pdf_comparison=None,
 ):
-    """Apply LOW/MEDIUM/HIGH preliminary screening decisions."""
+    """Apply preliminary LOW/MEDIUM/HIGH screening rules.
 
+    VERIFIED means preliminary automated checks passed; it is not issuer
+    confirmation or proof of authenticity.
+    """
     ai_analysis = ai_analysis if isinstance(ai_analysis, dict) else {}
-
     risk_level = str(
         ai_analysis.get("risk_level", "UNKNOWN")
     ).strip().upper()
 
-    has_readable_text = bool(
-        str(extracted_text or "").strip()
-    )
-
-    # Insufficient evidence must never be automatically verified.
-    if not has_readable_text:
+    if not str(extracted_text or "").strip():
         return (
             "PENDING_REVIEW",
             True,
-            "Insufficient readable text. Manual review required."
+            "Insufficient readable text. Manual review required.",
         )
 
-    # HIGH risk: automatically reject as requested.
-    
     if risk_level == "HIGH":
         return (
             "REJECTED",
             False,
-            "High-risk indicators detected by AI screening."
+            "HIGH-risk indicators detected by preliminary AI screening. "
+            "Review the findings before taking consequential action.",
         )
 
-
-    # MEDIUM and UNKNOWN: manual review.
     if risk_level in {"MEDIUM", "UNKNOWN"}:
         return (
             "PENDING_REVIEW",
             True,
-            f"AI risk level is {risk_level}. Manual review required."
+            f"AI risk level is {risk_level}. Manual review required.",
         )
 
-    # Unexpected AI risk values.
     if risk_level != "LOW":
         return (
             "PENDING_REVIEW",
             True,
-            "Unrecognized AI risk level. Manual review required."
+            "Unrecognized AI risk level. Manual review required.",
         )
 
-    # LOW risk still requires preliminary checks to pass.
+    # The AI's advisory flag must not override a LOW risk result when all
+    # deterministic checks pass. MEDIUM/UNKNOWN are already routed above.
+    # This remains preliminary screening, not issuer confirmation.
+
     if document_type != "LIKELY_CERTIFICATE":
         return (
             "PENDING_REVIEW",
             True,
-            "Document type could not be confirmed."
+            "Document type could not be confirmed.",
         )
 
     if not isinstance(detail_checks, dict) or not detail_checks:
         return (
             "PENDING_REVIEW",
             True,
-            "Document details could not be checked."
+            "Document details could not be checked.",
         )
 
     if not all(value is True for value in detail_checks.values()):
         return (
             "PENDING_REVIEW",
             True,
-            "Submitted details do not fully match extracted text."
+            "Submitted details do not fully match extracted text.",
         )
 
-    # Do not auto-verify if PDF text and visible OCR differ.
     if (
         isinstance(pdf_comparison, dict)
+        and pdf_comparison.get("comparison_available") is True
         and pdf_comparison.get("possible_mismatch") is True
     ):
         return (
             "PENDING_REVIEW",
             True,
-            "PDF text and visible OCR differ. Manual inspection required."
+            "PDF text and visible OCR differ. Manual inspection required.",
         )
 
-    # LOW risk and all preliminary checks passed.
     return (
         "VERIFIED",
         False,
-        "LOW AI risk and preliminary checks passed. "
-        "Issuer authenticity has not been independently confirmed."
+        "LOW AI risk and all preliminary checks passed. "
+        "This is an automated screening result, not independent issuer confirmation.",
     )
 
 
@@ -1488,13 +1483,6 @@ async def upload_credential(
 
 
     try:
-
-        saved_path.write_bytes(content)
-
-
-
-        
-    try:
         saved_path.write_bytes(content)
 
         if extension == ".pdf":
@@ -1573,13 +1561,13 @@ async def upload_credential(
 
 
 
-   status, manual_review_required, decision_reason = determine_automatic_decision( 
-    ai_analysis,
-    document_type,
-    detail_checks,
-    extracted_text,
-    pdf_comparison
-)
+    status, manual_review_required, decision_reason = determine_automatic_decision( 
+        ai_analysis,
+        document_type,
+        detail_checks,
+        extracted_text,
+        pdf_comparison
+    )
 
     credential_id = str(uuid.uuid4())
 

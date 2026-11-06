@@ -1,3 +1,21 @@
+logo
+more
+question-ai-logo
+managemanage
+managemanage
+useruser
+fullfull
+closeclose
+Chat AI
+Hello! Is there any question I can help you with?
+What is the purpose of student government in the United States?
+How to use the capture feature to ask questions?
+
+Ask AI
+Caution
+Refresh this page to activate the extension on this page.
+Refresh
+Feedback
 import json
 import os
 import base64
